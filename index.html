@@ -297,7 +297,7 @@ function vRanking(cat){
   const chips=`<div class="catchips">${cats.map(x=>`<button data-rk="${encodeURIComponent(x)}" aria-current="${x===c}">${esc(x)}<span class="n">${D.rank[x].length}</span></button>`).join('')}</div>`;
   const rows=D.rank[c].map(r=>{
     if(c==='Dobles'){const nn=(r.slugs||[]).map(s=>PL[s]).filter(Boolean);
-      return `<tr class="${r.p===1?'top1':''}"><td class="pos">${r.p}</td><td>${nn.length?nn.map(p=>`<a href="#jugador/${p.slug}">${esc(p.nom)}</a>`).join(' <span class="vs">y</span> '):esc(r.disp||r.par)}</td><td class="pts ${r.pts?'':'cero'}">${pts(r.pts)}</td></tr>`}
+      return `<tr class="${r.p===1?'top1':''}"><td class="pos">${r.p}</td><td>${nn.length?nn.map(p=>`<a href="#jugador/${p.slug}">${esc(p.nom)}</a>`).join(' · '):esc(r.disp||r.par)}</td><td class="pts ${r.pts?'':'cero'}">${pts(r.pts)}</td></tr>`}
     const[pos,nom,pt]=r; const p=D.players.find(x=>norm(x.nom)===norm(nom))||D.players.find(x=>x.q.includes(norm(nom)));
     return `<tr class="${pos===1?'top1':''}"><td class="pos">${pos}</td><td>${p?`<a href="#jugador/${p.slug}">${esc(p.nom)}</a>`:esc(nom)}</td><td class="pts ${pt?'':'cero'}">${pts(pt)}</td></tr>`;
   }).join('');
