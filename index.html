@@ -176,7 +176,7 @@ footer p{margin:0 0 9px}
 .ev-b{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--line-2);color:var(--ink-2);white-space:nowrap}
 .ev-b.sube{background:var(--green-soft);color:var(--green)}
 .ev-b.baja{background:var(--signal-soft);color:var(--signal)}
-.evosvg{width:100%;height:150px;display:block;overflow:visible}
+.evosvg{width:100%;height:auto;aspect-ratio:560/150;display:block;overflow:visible}
 .evosvg path{fill:none;stroke:var(--green);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .evosvg circle{fill:var(--card);stroke:var(--green);stroke-width:2;vector-effect:non-scaling-stroke}
 .evosvg circle.fin{fill:var(--green)}
@@ -301,7 +301,7 @@ function evolucion(r, cat){
   const d=ev[ev.length-1].pos-ev[ev.length-2].pos;
   const badge=d===0?'<span class="ev-b">se mantuvo</span>':d<0?`<span class="ev-b sube">↑ subió ${-d}</span>`:`<span class="ev-b baja">↓ bajó ${d}</span>`;
   return `<div class="evo"><div class="evo-h"><b>${esc(cat)} · ${r.p}º de ${T.n}</b>${badge}</div>
-   <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="evosvg"><path d="${linea}"/>${puntos}${ejes}</svg>
+   <svg viewBox="0 0 ${W} ${H}" class="evosvg"><path d="${linea}"/>${puntos}${ejes}</svg>
    <p class="nota" style="margin:2px 0 0">Cada punto es el puesto que tenía sumando sus puntos hasta esa fecha. Las columnas van en el orden del Excel del club, no cronológico.</p></div>`;
 }
 
@@ -381,7 +381,7 @@ function vJugador(sl){
   const ord=(a,b)=>(DIX[MB[a].d]??9)-(DIX[MB[b].d]??9)||tk(MB[a].h||'0:00')-tk(MB[b].h||'0:00');
   return `<div class="wrap"><section class="ficha"><div class="avb">${esc(ini(p.nom))}</div><h1>${esc(p.nom)}</h1>
    ${rk?`<div class="fchips">${rk}</div>`:'<p class="nota">Todavía sin puntos en el ranking del club.</p>'}
-   ${cs?`<div class="fchips">${cs}</div>`:'<p class="nota">No está inscrito en esta 4ta fecha.</p>'}
+   ${cs?`<div class="fchips">${cs}</div>`:'<p class="nota">No juega esta 4ta fecha.</p>'}
    ${nat}</section>
    ${evos?`<h2 class="sec">Evolución en el ranking<span class="cnt">${p.rank.filter(r=>r.pts>0).length} categorías</span></h2>${evos}`:''}
    ${juega?`<h2 class="sec" style="margin-top:26px">Por jugar<span class="cnt">${juega} confirmados</span></h2>
