@@ -202,6 +202,7 @@ const app=document.getElementById('app');
 const norm=s=>(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const tk=t=>{const[h,m]=t.split(':').map(Number);return h*60+m};
+const pl=(n,s,p)=>`${n} ${n===1?s:(p||s+'s')}`;
 const ini=n=>n.split(/\s+/).filter(w=>w.length>1).slice(0,2).map(w=>w[0]).join('').toUpperCase();
 const pts=v=>(v||0).toLocaleString('es-CL');
 
@@ -225,13 +226,13 @@ function listaDias(codes){
   D.dias.forEach(([k,lbl])=>{
     const ms=codes.filter(c=>MB[c].d===k).sort((a,b)=>tk(MB[a].h)-tk(MB[b].h)||MB[a].cat.localeCompare(MB[b].cat));
     if(!ms.length)return;
-    h+=`<section class="dia"><h2 class="sec">${lbl}<span class="cnt">${ms.length} partidos</span></h2>`;
+    h+=`<section class="dia"><h2 class="sec">${lbl}<span class="cnt">${pl(ms.length,'partido')}</span></h2>`;
     let last=null;
     ms.forEach(c=>{if(MB[c].h!==last){h+=`<div class="slot-h">${MB[c].h}</div>`;last=MB[c].h}h+=fila(c)});
     h+='</section>';
   });
   const wo=codes.filter(c=>!MB[c].d);
-  if(wo.length)h+=`<section class="dia"><h2 class="sec">Sin horario<span class="cnt">${wo.length} pasos automáticos</span></h2>
+  if(wo.length)h+=`<section class="dia"><h2 class="sec">Sin horario<span class="cnt">${pl(wo.length,'paso automático','pasos automáticos')}</span></h2>
    <p class="nota">Byes y walkovers: el jugador avanza sin jugar.</p>${wo.map(c=>fila(c)).join('')}</section>`;
   return h;
 }
@@ -338,7 +339,7 @@ function vLlaves(sl){
     <div class="kpi"><b style="font-size:14px;padding-top:4px">${esc(c.formato)}</b><span>Formato</span></div></div>
    </section>${chips}${gr}
    ${bracket(c)}
-   ${otros.length?`<h2 class="sec">Fase de grupos<span class="cnt">${otros.length} partidos</span></h2>${otros.map(x=>fila(x,{cat:false,dia:true})).join('')}`:''}
+   ${otros.length?`<h2 class="sec">Fase de grupos<span class="cnt">${pl(otros.length,'partido')}</span></h2>${otros.map(x=>fila(x,{cat:false,dia:true})).join('')}`:''}
    ${pie()}</div>`;
 }
 function vRanking(cat){
@@ -383,10 +384,10 @@ function vJugador(sl){
    ${rk?`<div class="fchips">${rk}</div>`:'<p class="nota">Todavía sin puntos en el ranking del club.</p>'}
    ${cs?`<div class="fchips">${cs}</div>`:'<p class="nota">No juega esta 4ta fecha.</p>'}
    ${nat}</section>
-   ${evos?`<h2 class="sec">Evolución en el ranking<span class="cnt">${p.rank.filter(r=>r.pts>0).length} categorías</span></h2>${evos}`:''}
-   ${juega?`<h2 class="sec" style="margin-top:26px">Por jugar<span class="cnt">${juega} confirmados</span></h2>
+   ${evos?`<h2 class="sec">Evolución en el ranking<span class="cnt">${pl(p.rank.filter(r=>r.pts>0).length,'categoría','categorías')}</span></h2>${evos}`:''}
+   ${juega?`<h2 class="sec" style="margin-top:26px">Por jugar<span class="cnt">${pl(juega,'confirmado')}</span></h2>
      ${p.partidos.slice().sort(ord).map(c=>fila(c,{dia:true})).join('')}`:''}
-   ${p.pos.length?`<h2 class="sec" style="margin-top:26px">Si va ganando<span class="cnt">${p.pos.length} posibles</span></h2>
+   ${p.pos.length?`<h2 class="sec" style="margin-top:26px">Si va ganando<span class="cnt">${pl(p.pos.length,'posible')}</span></h2>
     <p class="nota">Partidos que le tocarían según cómo avance en la llave. No están confirmados.</p>
     ${p.pos.slice().sort(ord).map(c=>fila(c,{dia:true})).join('')}`:''}
    ${pie()}</div>`;
@@ -405,7 +406,7 @@ function vPartido(code){
    ${jug.length?`<h2 class="sec" style="margin-top:22px">Fichas</h2><div class="jlist">${jug.map(n=>{const p=D.players.find(x=>x.nom===n);return p?`<button class="jc" data-j="${p.slug}"><span class="av">${esc(ini(n))}</span><span class="info"><span class="nn">${esc(n)}</span><span class="cc">${p.cats.map(y=>esc(y.c)).join(' • ')}</span></span></button>`:''}).join('')}</div>`:''}
    ${src.length?`<h2 class="sec" style="margin-top:22px">De dónde sale</h2>${src.map(s=>fila(s,{dia:true})).join('')}`:''}
    <h2 class="sec" style="margin-top:22px">Su llave</h2><p class="nota">${esc(c.nota)}</p>
-   <button class="jc" data-cat="${c.slug}" style="max-width:320px"><span class="av"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h6v12h6M16 12h4"/></svg></span><span class="info"><span class="nn">Ver la llave de ${esc(c.nom)}</span><span class="cc">${c.n} partidos</span></span></button>
+   <button class="jc" data-cat="${c.slug}" style="max-width:320px"><span class="av"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h6v12h6M16 12h4"/></svg></span><span class="info"><span class="nn">Ver la llave de ${esc(c.nom)}</span><span class="cc">${pl(c.n,'partido')}</span></span></button>
    ${pie()}</div>`;
 }
 function pie(){
