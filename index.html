@@ -313,16 +313,22 @@ async function leerXLSX(ab){
   const wb=await txt('xl/workbook.xml'); if(!wb) throw new Error('El archivo no tiene hojas de Excel adentro');
   const rels=await txt('xl/_rels/workbook.xml.rels')||'';
   const mapa={}; let m;
-  const rr=/<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g;
-  while((m=rr.exec(rels))) mapa[m[1]]=m[2].replace(/^\/?xl\//,'').replace(/^\//,'');
+  const attr=(tag,n)=>{ const q=tag.match(new RegExp('\\b'+n+'="([^"]*)"')); return q?q[1]:null };
+  const rr=/<Relationship\b[^>]*>/g;                    // el orden de los atributos cambia según quién escribió el archivo
+  while((m=rr.exec(rels))){
+    const id=attr(m[0],'Id'), tg=attr(m[0],'Target');
+    if(!id||!tg) continue;
+    mapa[id] = tg.charAt(0)==='/' ? tg.slice(1) : (/^xl\//.test(tg) ? tg : 'xl/'+tg);
+  }
   const ss=textos(await txt('xl/sharedStrings.xml')||'');
   const out={};
-  const hr=/<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"[^>]*\/>/g;
+  const hr=/<sheet\b[^>]*>/g;
   while((m=hr.exec(wb))){
-    const nombre=desesc(m[1]), destino=mapa[m[2]];
-    if(!destino) continue;
-    const x=await txt('xl/'+destino); if(!x) continue;
-    out[nombre]=hoja(x, ss);
+    const nombre=attr(m[0],'name'), rid=attr(m[0],'r:id')||attr(m[0],'id');
+    if(!nombre||!rid) continue;
+    const destino=mapa[rid]; if(!destino) continue;
+    const x=await txt(destino); if(!x) continue;
+    out[desesc(nombre)]=hoja(x, ss);
   }
   return out;
 }
@@ -568,6 +574,7 @@ function juntarCrudos(porHoja){
     const propios=new Set(CAT[catSlug].codes);
     for(const p of R.partidos){
       if(!p.gan) continue;
+      if(!p.sets.length && !p.wo) continue;   // un bye no es un resultado: la llave ya lo sabe
       const code=catDeCodigo(p.code, catSlug);
       if(!propios.has(code)) continue;
       crudos.push({code, catSlug, hoja, p, leido:p.gan});
