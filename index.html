@@ -461,8 +461,8 @@ function pintarPrev(){
     ${filas.map((f,i)=>`<tr class="${f.estado==='ok'?'':'duda'}">
       <td class="pos">${esc(f.code.replace('-B',''))}</td>
       <td>${f.estado==='ok'?esc(f.gan):`<span class="q">${esc(f.leido||'?')}</span>`}
-        ${f.estado==='elegir'?`<div class="opts">${f.opts.map((o,k)=>`<button class="btn mini" data-fix="${i}" data-lado="${k?'b':'a'}">${esc(o)}</button>`).join('')}</div>`:''}
-        ${f.estado==='nocalza'?`<div class="msg">No calza con ${esc(f.opts.join(' ni '))}</div>`:''}
+        ${(f.estado==='elegir'||f.estado==='nocalza')&&f.opts?`<div class="msg">No calza con ninguno de los dos. Elige quién ganó:</div>
+          <div class="opts">${f.opts.map((o,k)=>`<button class="btn mini" data-fix="${i}" data-lado="${k?'b':'a'}">${esc(o)}</button>`).join('')}</div>`:''}
         ${f.estado==='sinjugar'?'<div class="msg">Los rivales todavía no están definidos</div>':''}</td>
       <td>${esc(f.marc||'')}</td>
       <td>${f.estado==='ok'?'<span class="ok">✓</span>':'<span class="warn2">!</span>'}</td></tr>`).join('')}
@@ -490,7 +490,7 @@ function leerPegado(){
       if(gp.length===tp.length&&gp.length>1) return gp.every((q,i)=>apellidoCalza(tp[i],q));
       return apellidoCalza(t,g) };
     let w = calza(A)?'a' : calza(B)?'b' : null;
-    if(!w){ filas.push({code, leido:p.gan, estado: (A.tbd||B.tbd)?'sinjugar':'nocalza', opts, p}); continue }
+    if(!w){ filas.push({code, leido:p.gan, estado: (A.tbd||B.tbd)?'sinjugar':'nocalza', opts, p, marc:p.sets.map(x=>x[0]+'-'+x[1]).join(', ')}); continue }
     const s = p.sets.map(([x,y])=> w==='a'?[x,y]:[y,x]);
     work[code]={w, s, wo:!!p.wo};
     filas.push({code, gan: w==='a'?A.txt:B.txt, marc:p.sets.map(x=>x[0]+'-'+x[1]).join(', '), estado:'ok', w, s, wo:!!p.wo, opts});
