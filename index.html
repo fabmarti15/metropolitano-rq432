@@ -602,7 +602,9 @@ function vSubir(){
      <label>Token de GitHub <span class="lab2">se guarda solo en este computador</span></label>
      <input type="password" id="tok" value="${esc(tk)}" placeholder="github_pat_…" autocomplete="off">
      <div class="fila-btn"><button class="btn ghost" id="guardatok">Guardar token</button>
-      <button class="btn" id="publicar" disabled>Publicar resultados</button></div>
+      <button class="btn" id="publicar" disabled>Publicar resultados</button>
+      <button class="btn ghost" id="copiar">Copiar para mandar</button></div>
+     <textarea id="respaldo" rows="5" style="display:none;margin-top:8px" readonly></textarea>
      <div id="estado" class="estado"></div>
      <details class="ayuda"><summary>Cómo se crea el token</summary>
       <ol><li>github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens</li>
@@ -683,29 +685,68 @@ function fixLado(i,lado){
   pintarPrev();
 }
 /* ---- publicar ---- */
+async function bajarRemoto(url,h){
+  const g=await fetch(url+'?t='+Date.now(),{headers:h});
+  if(g.status===404) return {sha:null, partidos:{}};
+  if(g.status===401||g.status===403) return {error:'permiso'};
+  if(!g.ok) return {error:'http '+g.status};
+  const j=await g.json();
+  let partidos={};
+  try{ partidos=JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\s/g,''))))).partidos||{} }catch(e){}
+  return {sha:j.sha, partidos};
+}
 async function publicar(){
   const tok=document.getElementById('tok').value.trim(), est=document.getElementById('estado');
   if(!tok){est.innerHTML='<span class="warn2">Falta el token</span>';return}
   if(!PEND){est.innerHTML='<span class="warn2">Primero sube el Excel</span>';return}
-  est.textContent='Publicando…';
-  const nuevo=Object.assign({},RES);
-  PEND.filas.filter(f=>f.estado==='ok').forEach(f=>{nuevo[f.code]={w:f.w,s:f.s,wo:f.wo}});
-  const cuerpo={actualizado:new Date().toISOString(), partidos:nuevo};
+  const listos=PEND.filas.filter(f=>f.estado==='ok');
+  if(!listos.length){est.innerHTML='<span class="warn2">No hay partidos para publicar</span>';return}
   const url=`https://api.github.com/repos/${REPO}/contents/${ARCHIVO}`;
   const h={Authorization:'Bearer '+tok, Accept:'application/vnd.github+json'};
-  try{
-    let sha=null;
-    const g=await fetch(url+'?t='+Date.now(),{headers:h});
-    if(g.status===200) sha=(await g.json()).sha;
-    else if(g.status===401||g.status===403){est.innerHTML='<span class="warn2">El token no sirve o no tiene permiso de escritura</span>';return}
+  est.textContent='Publicando…';
+  for(let intento=1; intento<=3; intento++){
+    // siempre se parte de lo último que hay en GitHub, no de lo que tenía cargado esta pestaña:
+    // así dos computadores no se pisan lo del otro
+    const rem=await bajarRemoto(url,h);
+    if(rem.error==='permiso'){est.innerHTML='<span class="warn2">El token no sirve o no tiene permiso de escritura</span>';return}
+    if(rem.error){est.innerHTML='<span class="warn2">No pude leer lo que ya estaba publicado: '+esc(rem.error)+'</span>';return}
+    const nuevos=Object.assign({},rem.partidos);
+    listos.forEach(f=>{nuevos[f.code]={w:f.w,s:f.s,wo:f.wo}});
+    const traidos=Object.keys(rem.partidos).length;
+    const cuerpo={actualizado:new Date().toISOString(), partidos:nuevos};
     const contenido=btoa(unescape(encodeURIComponent(JSON.stringify(cuerpo,null,1))));
     const p=await fetch(url,{method:'PUT',headers:h,body:JSON.stringify({
-      message:`resultados: ${Object.keys(nuevo).length} partidos`, content:contenido, sha:sha||undefined})});
+      message:`resultados: ${Object.keys(nuevos).length} partidos`, content:contenido,
+      sha:rem.sha||undefined})});
+    if(p.status===409||p.status===422){ est.textContent=`Alguien más publicó al mismo tiempo, reintentando (${intento})…`; continue }
     if(!p.ok){const t=await p.text(); est.innerHTML='<span class="warn2">No se pudo publicar: '+esc(t.slice(0,180))+'</span>';return}
-    RES=nuevo; META_RES={actualizado:cuerpo.actualizado}; limpiarCache(); PEND=null;
-    est.innerHTML='<span class="ok">Listo. El sitio queda actualizado en 1 o 2 minutos.</span>';
+    RES=nuevos; META_RES={actualizado:cuerpo.actualizado}; limpiarCache(); PEND=null;
+    const sumados=Object.keys(nuevos).length-traidos;
+    est.innerHTML=`<span class="ok">Listo. ${pl(listos.length,'partido')} publicado${listos.length===1?'':'s'}`+
+      (sumados<listos.length?` (${listos.length-sumados} eran actualizaciones de partidos que ya estaban)`:'')+
+      `. El sitio queda al día en 1 o 2 minutos.</span>`;
     document.getElementById('prev').innerHTML='';
-  }catch(e){ est.innerHTML='<span class="warn2">Error de red: '+esc(String(e.message||e))+'</span>' }
+    document.getElementById('leyendo').innerHTML='';
+    return;
+  }
+  est.innerHTML='<span class="warn2">No se pudo publicar: otro computador está publicando al mismo tiempo. Espera un minuto y aprieta de nuevo.</span>';
+}
+/* ---- respaldo sin token: copiar o bajar los resultados ---- */
+function textoRespaldo(){
+  const listos=PEND?PEND.filas.filter(f=>f.estado==='ok'):[];
+  const nuevos=Object.assign({},RES);
+  listos.forEach(f=>{nuevos[f.code]={w:f.w,s:f.s,wo:f.wo}});
+  return JSON.stringify({actualizado:new Date().toISOString(), partidos:nuevos},null,1);
+}
+async function copiarRespaldo(){
+  const est=document.getElementById('estado');
+  try{ await navigator.clipboard.writeText(textoRespaldo());
+    est.innerHTML='<span class="ok">Copiado. Pégaselo a Fabián por WhatsApp y él lo publica.</span>' }
+  catch(e){
+    const t=document.getElementById('respaldo');
+    if(t){t.value=textoRespaldo(); t.style.display='block'; t.select();
+      est.innerHTML='<span class="ok">Selecciona el texto de abajo, cópialo y mándaselo a Fabián.</span>'}
+  }
 }
 
 const D=MODEL, CAT={}, PL={}, MB=D.matches;
@@ -1034,6 +1075,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('#leerpega'); if(b)return leerPegado();
   const d=e.target.closest('#drop'); if(d){document.getElementById('file').click();return}
   const p=e.target.closest('#publicar'); if(p)return publicar();
+  const cp=e.target.closest('#copiar'); if(cp)return copiarRespaldo();
   const g=e.target.closest('#guardatok'); if(g){localStorage.setItem(TK,document.getElementById('tok').value.trim());
     document.getElementById('estado').innerHTML='<span class="ok">Token guardado en este computador</span>';return}
   const f=e.target.closest('[data-fix]'); if(f)return fixLado(+f.dataset.fix, f.dataset.lado);
