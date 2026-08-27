@@ -340,6 +340,16 @@ const RE_CODE=/^(P|PD|PJ|PJB|PS|PP|PDD|MB)-?\d+\*?$/i;
 const RE_SETS=/^\s*\d{1,2}(\s+\d{1,2}){1,6}\s*$/;
 const RE_WO=/^\s*(w\.?o\.?|walkover|no se presento|no se presentó)\s*$/i;
 const CERCA=[0,1,-1,2,-2,3,-3,4];
+const DIAS_RE=/(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)/i;
+const NORMDIA={lunes:'lunes',martes:'martes',miercoles:'miercoles','miércoles':'miercoles',
+ jueves:'jueves',viernes:'viernes',sabado:'sabado','sábado':'sabado',domingo:'domingo'};
+function parseHora(s){
+  if(!s) return null;
+  const d=s.match(DIAS_RE), h=s.match(/(\d{1,2})[:.](\d{2})/);
+  if(!h) return null;
+  const dia=d?NORMDIA[d[1].toLowerCase()]:null;
+  return {d:dia, h:(+h[1])+':'+h[2]};
+}
 const RE_HORA=/(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)?\s*\d{1,2}[:.]\d{2}/i;
 
 function grid(txt){
@@ -352,7 +362,7 @@ const sets=s=>RE_SETS.test(s)?s.trim().split(/\s+/).map(Number):null;
 
 function leer(txt){ return leerGrid(grid(txt)) }
 function leerGrid(G){
-  const out=[], avisos=[];
+  const out=[], avisos=[], horarios=[];
   let cat=null;
   for(const row of G) for(const cel of row){
     const m=cel.match(/^(?:CUADRO|Categoria|Categoría)\s+(.+)$/i);
@@ -361,6 +371,8 @@ function leerGrid(G){
   for(let r=0;r<G.length;r++) for(let c=0;c<(G[r]||[]).length;c++){
     const cel=at(G,r,c); if(!RE_CODE.test(cel)) continue;
     const code=cel.toUpperCase().replace(/\s/g,'');
+    // dia y hora: van justo al lado del codigo
+    for(let dc=1;dc<=2;dc++){ const hh=parseHora(at(G,r,c+dc)); if(hh){ horarios.push({code,...hh}); break } }
     let rec={code, sets:[], gan:null, wo:false, nombres:[]};
 
     // --- forma GRUPO: nombre en (r±1,c+1), marcador en (r±1,c+2)
@@ -413,16 +425,30 @@ function leerGrid(G){
     }
     out.push(rec);
   }
-  return {cat, partidos:out, avisos};
+  return {cat, partidos:out, horarios, avisos};
 }
 if(typeof module!=='undefined') module.exports={leer, leerGrid, grid, esNombre, sets};
 
 /* ===== motor de resultados ===== */
 let RES={};            // code -> {w:'a'|'b', s:[[A,B],...], wo:bool}
+let HOR={};            // code -> {d,h}  cambios de horario publicados
+const HORA0={};        // horario original del Excel con que se armó el sitio
 let META_RES={};       // {actualizado, por}
 const _res={};
 
 function limpiarCache(){ for(const k in _res) delete _res[k] }
+function guardarHorariosBase(){
+  if(Object.keys(HORA0).length) return;
+  for(const c in MB) HORA0[c]={d:MB[c].d, h:MB[c].h};
+}
+function aplicarHorarios(map){
+  guardarHorariosBase();
+  for(const c in MB){ const o=HORA0[c]; MB[c].d=o.d; MB[c].h=o.h }   // volver a la base y reaplicar
+  for(const c in (map||{})){ if(!MB[c]) continue;
+    if(map[c].d) MB[c].d=map[c].d;
+    if(map[c].h) MB[c].h=map[c].h; }
+  HOR=map||{};
+}
 
 function ladoDe(code,k,R){
   R=R||RES;
@@ -538,7 +564,7 @@ function resolverTodo(crudos){
     for(const it of pend){
       const {code,p}=it;
       const A=ladoDe(code,'a',work), B=ladoDe(code,'b',work);
-      if(A.tbd&&B.tbd){ quedan.push(it); continue }
+      if(A.tbd||B.tbd){ quedan.push(it); continue }   // esperar a que los DOS rivales esten definidos
       if(!p.gan && p.ladoPos!=null){            // grupo sin nombres: manda la posición
         const w2 = p.ladoPos===0?'a':'b';
         const s2 = p.sets.map(([x,y])=> w2==='a'?[x,y]:[y,x]);
@@ -548,12 +574,22 @@ function resolverTodo(crudos){
         continue;
       }
       const g=norm(p.gan);
-      const calza=x=>{ if(x.tbd) return false; const t=norm(x.txt);
-        if(t===g) return true;
+      // 1) coincidencia exacta. Nunca adivinar si un lado calza exacto.
+      const exacto=x=>!x.tbd && norm(x.txt)===g;
+      // 2) parecido, solo si ninguno calza exacto
+      const parecido=x=>{ if(x.tbd) return false; const t=norm(x.txt);
         const gp=g.split(/\s*\/\s*/), tp=t.split(/\s*\/\s*/);
-        if(gp.length===tp.length&&gp.length>1) return gp.every((q,i)=>apellidoCalza(tp[i],q));
+        if(gp.length>1||tp.length>1){
+          if(gp.length!==tp.length) return false;
+          return gp.every((q,i)=>apellidoCalza(tp[i],q));
+        }
         return apellidoCalza(t,g) };
-      const w = calza(A)?'a' : calza(B)?'b' : null;
+      let w = exacto(A)?'a' : exacto(B)?'b' : null;
+      if(!w){
+        const pa=parecido(A), pb=parecido(B);
+        // si el nombre se parece a los dos (mismo apellido), no se adivina: se pregunta
+        w = (pa&&!pb) ? 'a' : (pb&&!pa) ? 'b' : null;
+      }
       if(!w){ if(A.tbd||B.tbd){quedan.push(it);continue}
               filas.push({...it, estado:'nocalza', opts:[A.txt,B.txt],
                           marc:p.sets.map(x=>x[0]+'-'+x[1]).join(', ')}); continue }
@@ -574,6 +610,25 @@ function resolverTodo(crudos){
   filas.sort((a,b)=> ord.indexOf(a.catSlug)-ord.indexOf(b.catSlug) ||
     ORD_R.indexOf(MB[a.code].rnd)-ORD_R.indexOf(MB[b.code].rnd) || a.code.localeCompare(b.code));
   return {filas, work};
+}
+function cambiosDeHorario(porHoja){
+  guardarHorariosBase();
+  const out=[], mapa=Object.assign({},HOR);
+  for(const {catSlug, R} of porHoja){
+    if(!catSlug) continue;
+    const propios=new Set(CAT[catSlug].codes);
+    for(const x of (R.horarios||[])){
+      if(!propios.has(x.code)) continue;
+      const m=MB[x.code]; if(!m) continue;
+      const dOK = !x.d || x.d===m.d, hOK = x.h===m.h;
+      if(dOK && hOK) continue;
+      out.push({code:x.code, catSlug,
+        antes:(m.d?DIA[m.d]:'—')+' '+(m.h||'—'),
+        ahora:(x.d?DIA[x.d]:DIA[m.d]||'—')+' '+x.h});
+      mapa[x.code]={d:x.d||m.d, h:x.h};
+    }
+  }
+  return {cambios:out, mapa};
 }
 function juntarCrudos(porHoja){
   const crudos=[], noLeidas=[];
@@ -596,12 +651,13 @@ function vSubir(){
   const act=META_RES.actualizado?`Última carga: ${new Date(META_RES.actualizado).toLocaleString('es-CL')}`:'Todavía no se ha cargado ningún resultado';
   return `<div class="wrap"><section class="hero"><div class="kicker">Subir resultados</div>
    <h1>Sube el Excel</h1>
-   <p class="sub">Arrastra el archivo del fixture tal como está. Lee todas las categorías de una vez, con los partidos que estén cargados hasta ese momento.</p>
+   <p class="sub">Arrastra el archivo del fixture tal como está. Sirve para las dos cosas: <b>resultados</b> de los partidos jugados y <b>cambios de horario</b>. Lee todas las categorías de una vez.</p>
    <p class="nota">${esc(act)} · ${Object.keys(RES).length} partidos cargados</p></section>
 
    <div class="paso"><div class="paso-n">1</div><div class="paso-c">
      <div class="drop" id="drop"><b>Arrastra acá el Excel</b><span>o haz clic para buscarlo</span>
        <input type="file" id="file" accept=".xlsx,.xlsm" hidden></div>
+     <p class="nota" style="margin:8px 0 0">Si moviste horarios y todavía no hay partidos jugados, súbelo igual: los cambios de hora se publican solos.</p>
      <div id="leyendo" class="estado"></div></div></div>
 
    <div id="prev"></div>
@@ -631,6 +687,7 @@ function vSubir(){
 function pintarPrev(){
   const box=document.getElementById('prev'); if(!PEND){box.innerHTML='';return}
   const {filas, noLeidas}=PEND;
+  const hor=PEND.horarios||[];
   const ok=filas.filter(f=>f.estado==='ok').length, dudas=filas.filter(f=>f.estado!=='ok').length;
   let cat=null, cuerpo='';
   for(let i=0;i<filas.length;i++){
@@ -646,12 +703,18 @@ function pintarPrev(){
       <td>${esc(f.marc||'')}</td>
       <td>${f.estado==='ok'?'<span class="ok">✓</span>':'<span class="warn2">!</span>'}</td></tr>`;
   }
-  box.innerHTML=`<div class="paso"><div class="paso-n">✓</div><div class="paso-c">
+  const bloqueHor = hor.length?`<div class="paso"><div class="paso-n">🕑</div><div class="paso-c">
+    <label>Cambios de horario <span class="lab2">${pl(hor.length,'partido se movió','partidos se movieron')}</span></label>
+    <div class="tablawrap"><table class="tabla"><thead><tr><th>Partido</th><th>Antes</th><th>Ahora</th></tr></thead><tbody>
+    ${hor.map(x=>`<tr><td class="pos">${esc(x.code)}</td><td class="cero">${esc(x.antes)}</td><td><b>${esc(x.ahora)}</b></td></tr>`).join('')}
+    </tbody></table></div></div></div>`:'';
+  if(!filas.length){ box.innerHTML=bloqueHor; document.getElementById('publicar').disabled = !hor.length; return }
+  box.innerHTML=bloqueHor+`<div class="paso"><div class="paso-n">✓</div><div class="paso-c">
     <label>Esto entendí <span class="lab2">${pl(ok,'partido')} listo${ok===1?'':'s'}${dudas?` · ${pl(dudas,'duda')}`:''}</span></label>
     ${noLeidas&&noLeidas.length?`<p class="nota">Hojas que no correspondían a ninguna categoría y se saltaron: ${esc(noLeidas.join(', '))}</p>`:''}
     <div class="tablawrap"><table class="tabla"><thead><tr><th>Partido</th><th>Ganador</th><th>Marcador</th><th></th></tr></thead>
     <tbody>${cuerpo}</tbody></table></div></div></div>`;
-  document.getElementById('publicar').disabled = ok===0;
+  document.getElementById('publicar').disabled = (ok===0 && !hor.length);
 }
 async function tomarArchivo(file){
   const est=document.getElementById('leyendo');
@@ -668,14 +731,14 @@ async function tomarArchivo(file){
       porHoja.push({hoja:nombre, catSlug, R:leerGrid(g)});
     }
     const {crudos}=juntarCrudos(porHoja);
-    if(!crudos.length){
-      est.innerHTML=`<span class="ok">Leí ${esc(file.name)} sin problema</span> · ${pl(Object.keys(hojas).length,'hoja')}, `+
-        `${pl(porHoja.length,'categoría reconocida','categorías reconocidas')}.<br>`+
-        `Todavía no hay marcadores escritos en el Excel. Cuando anotes los primeros ganadores, vuelve a subirlo y aparecen acá.`;
+    const H=cambiosDeHorario(porHoja);
+    const {filas, work}=crudos.length?resolverTodo(crudos):{filas:[],work:Object.assign({},RES)};
+    PEND={filas, work, noLeidas:saltadas, origen:file.name, horarios:H.cambios, mapaHorarios:H.mapa};
+    const base=`<span class="ok">Leí ${esc(file.name)} sin problema</span> · ${pl(Object.keys(hojas).length,'hoja')}, ${pl(porHoja.length,'categoría reconocida','categorías reconocidas')}.`;
+    if(!crudos.length && !H.cambios.length){
+      est.innerHTML=base+'<br>No hay marcadores nuevos ni cambios de horario. Todo lo que trae el Excel ya está en el sitio.';
       PEND=null; pintarPrev(); return }
-    const {filas, work}=resolverTodo(crudos);
-    PEND={filas, work, noLeidas:saltadas, origen:file.name};
-    est.innerHTML=`<span class="ok">${esc(file.name)}</span> · ${pl(porHoja.length,'hoja')} con resultados`;
+    est.innerHTML=base;
     pintarPrev();
   }catch(e){ est.innerHTML='<span class="warn2">No pude leer el archivo: '+esc(String(e.message||e))+'</span>' }
 }
@@ -699,20 +762,22 @@ function fixLado(i,lado){
 /* ---- publicar ---- */
 async function bajarRemoto(url,h){
   const g=await fetch(url+'?t='+Date.now(),{headers:h});
-  if(g.status===404) return {sha:null, partidos:{}};
+  if(g.status===404) return {sha:null, partidos:{}, horarios:{}};
   if(g.status===401||g.status===403) return {error:'permiso'};
   if(!g.ok) return {error:'http '+g.status};
   const j=await g.json();
-  let partidos={};
-  try{ partidos=JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\s/g,''))))).partidos||{} }catch(e){}
-  return {sha:j.sha, partidos};
+  let partidos={}, horarios={};
+  try{ const o=JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\s/g,'')))));
+       partidos=o.partidos||{}; horarios=o.horarios||{} }catch(e){}
+  return {sha:j.sha, partidos, horarios};
 }
 async function publicar(){
   const tok=document.getElementById('tok').value.trim(), est=document.getElementById('estado');
   if(!tok){est.innerHTML='<span class="warn2">Falta el token</span>';return}
   if(!PEND){est.innerHTML='<span class="warn2">Primero sube el Excel</span>';return}
   const listos=PEND.filas.filter(f=>f.estado==='ok');
-  if(!listos.length){est.innerHTML='<span class="warn2">No hay partidos para publicar</span>';return}
+  const hor=PEND.horarios||[];
+  if(!listos.length && !hor.length){est.innerHTML='<span class="warn2">No hay nada nuevo para publicar</span>';return}
   const url=`https://api.github.com/repos/${REPO}/contents/${ARCHIVO}`;
   const h={Authorization:'Bearer '+tok, Accept:'application/vnd.github+json'};
   est.textContent='Publicando…';
@@ -725,16 +790,19 @@ async function publicar(){
     const nuevos=Object.assign({},rem.partidos);
     listos.forEach(f=>{nuevos[f.code]={w:f.w,s:f.s,wo:f.wo}});
     const traidos=Object.keys(rem.partidos).length;
-    const cuerpo={actualizado:new Date().toISOString(), partidos:nuevos};
+    const horNuevos=Object.assign({}, rem.horarios||{}, PEND.mapaHorarios||{});
+    const cuerpo={actualizado:new Date().toISOString(), partidos:nuevos, horarios:horNuevos};
     const contenido=btoa(unescape(encodeURIComponent(JSON.stringify(cuerpo,null,1))));
     const p=await fetch(url,{method:'PUT',headers:h,body:JSON.stringify({
       message:`resultados: ${Object.keys(nuevos).length} partidos`, content:contenido,
       sha:rem.sha||undefined})});
     if(p.status===409||p.status===422){ est.textContent=`Alguien más publicó al mismo tiempo, reintentando (${intento})…`; continue }
     if(!p.ok){const t=await p.text(); est.innerHTML='<span class="warn2">No se pudo publicar: '+esc(t.slice(0,180))+'</span>';return}
-    RES=nuevos; META_RES={actualizado:cuerpo.actualizado}; limpiarCache(); PEND=null;
+    RES=nuevos; META_RES={actualizado:cuerpo.actualizado}; aplicarHorarios(horNuevos); limpiarCache();
+    const nHor=(PEND.horarios||[]).length; PEND=null;
     const sumados=Object.keys(nuevos).length-traidos;
-    est.innerHTML=`<span class="ok">Listo. ${pl(listos.length,'partido')} publicado${listos.length===1?'':'s'}`+
+    est.innerHTML=`<span class="ok">Listo. `+(nHor?`${pl(nHor,'horario actualizado','horarios actualizados')}. `:'')+
+      (listos.length?`${pl(listos.length,'partido')} publicado${listos.length===1?'':'s'}`:'')+
       (sumados<listos.length?` (${listos.length-sumados} eran actualizaciones de partidos que ya estaban)`:'')+
       `. El sitio queda al día en 1 o 2 minutos.</span>`;
     document.getElementById('prev').innerHTML='';
@@ -1022,7 +1090,7 @@ function pie(){
   <p><b>Cambios de la última versión del fixture.</b> Plata pasó de P36–P42 a P54–P60, con lo que se terminó el choque de códigos con Bronce. PD7 de Dobles se movió a las 18:00 del viernes y PS1 de Senior a las 17:20 del jueves. Multibote sumó a Violeta Vargas.</p>
   <p><b>Las fechas del ranking van en el orden del Excel</b>, que no es cronológico: la 4ª y la 5ª dicen septiembre y diciembre de 2025, después de la 3ª de julio 2026. Además vienen con erratas (\"Dicmebre\", \"Mayo 2025\", \"Julio 2025\"). Se dejaron tal cual y solo se unificó la etiqueta.</p>
   <p><b>Lo que sigue pendiente en el Excel.</b> Multibote no tiene horarios por partido, solo el bloque del sábado 10:40 a 12:00. El PD16 duplicado y la celda con #REF! de Dobles Plata ya los corrigieron.</p>
-  <p><a href="#subir">Subir resultados</a> · solo para la organización.</p>
+  <p><a href="#subir">Subir resultados y horarios</a> · solo para la organización.</p>
   <p>Armado desde <i>Fixture 4ta Fecha 2026.xlsx</i> (hoja Inscritos + los 11 cuadros).</p></footer>`;
 }
 
@@ -1094,8 +1162,10 @@ document.addEventListener('click',e=>{
   const f=e.target.closest('[data-fix]'); if(f)return fixLado(+f.dataset.fix, f.dataset.lado);
 });
 (async function arranque(){
+  guardarHorariosBase();
   try{ const r=await fetch('resultados.json?t='+Date.now());
-    if(r.ok){ const d=await r.json(); RES=d.partidos||{}; META_RES={actualizado:d.actualizado} } }
+    if(r.ok){ const d=await r.json(); RES=d.partidos||{}; META_RES={actualizado:d.actualizado};
+      aplicarHorarios(d.horarios||{}) } }
   catch(e){}
   render();
 })();
